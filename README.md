@@ -37,6 +37,17 @@ make app
 make run
 ```
 
+### リリース用DMG
+
+GitHub Actionsで`main`へのpushごとにリリース用DMGを自動生成します。生成された`NotSleep.dmg`は、その実行のArtifactsからダウンロードできます。
+
+`v1.0.0`のような`v*`タグをpushした場合は、DMGを添付したGitHub Releaseも自動作成されます。
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 ### 注意
 
 初回起動時に、`pmset disablesleep`を認証なしで実行するための最小ヘルパーをインストールします。管理者認証はこの初回セットアップ時のみ必要です。
@@ -97,6 +108,17 @@ Run:
 
 ```sh
 make run
+```
+
+### Release DMG
+
+GitHub Actions automatically builds a release DMG on every push to `main`. The generated `NotSleep.dmg` can be downloaded from the workflow run artifacts.
+
+When pushing a `v*` tag such as `v1.0.0`, the workflow also creates a GitHub Release and attaches the DMG.
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 ### Notes
