@@ -150,24 +150,19 @@ jobs:
           fi
 
           cat << 'EOF' > release_notes.md
-## 📦 NotSleep リリース
+NotSleep リリース
 
-MacBookの画面を閉じた際のスリープ防止・有効化を手軽に切り替えられるメニューバー常駐アプリです。
-
-### ⚠️ 初回起動時のご注意（重要）
-本アプリはアドホック（未署名）ビルドのため、ダウンロード後にそのまま開くと macOS の Gatekeeper により「壊れているため開けません」という警告が表示される場合があります。
-
-`NotSleep.app` をアプリケーションフォルダに配置後、アプリを開く前に**ターミナル**で以下のコマンドを実行してセキュリティ保護を解除してください。
+【注意】
+アプリを開く前に、ターミナルで以下のコマンドを実行してください。
 
 ```bash
 xattr -cr /Applications/NotSleep.app
 ```
 
-*(※ ダウンロードフォルダから直接開く場合は `xattr -cr ~/Downloads/NotSleep.app` を実行してください)*
+(※ ダウンロードフォルダ内のアプリを直接開く場合は xattr -cr ~/Downloads/NotSleep.app を実行してください)
 
----
-### 📥 ダウンロード
-下部の `NotSleep.dmg` をダウンロードしてご利用ください。
+【ダウンロード】
+下部の NotSleep.dmg をダウンロードしてご利用ください。
 EOF
 
           gh release create "$TAG_NAME" "$DMG_PATH" \
