@@ -165,5 +165,6 @@ jobs:
 
           gh release create "$TAG_NAME" "$DMG_PATH" \
             --title "$RELEASE_TITLE" \
-            --notes-file release_notes.md \
-            --clobber
+            --notes-file release_notes.md || \
+          (gh release upload "$TAG_NAME" "$DMG_PATH" --clobber && \
+           gh release edit "$TAG_NAME" --title "$RELEASE_TITLE" --notes-file release_notes.md)
