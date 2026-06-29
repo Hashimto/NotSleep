@@ -18,7 +18,6 @@ jobs:
     env:
       APP_PATH: .build/release/NotSleep.app
       DMG_PATH: dist/NotSleep.dmg
-      KEYCHAIN_PATH: ${{ runner.temp }}/notarization.keychain-db
 
     steps:
       - name: Checkout
@@ -43,6 +42,7 @@ jobs:
           DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
           DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          KEYCHAIN_PATH: ${{ runner.temp }}/notarization.keychain-db
         run: |
           set -euo pipefail
           echo "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > "${RUNNER_TEMP}/developer-id.p12"
