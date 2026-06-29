@@ -41,6 +41,20 @@ make run
 
 GitHub Actionsで`main`へのpushごとにリリース用DMGを自動生成します。生成された`NotSleep.dmg`は、その実行のArtifactsからダウンロードできます。
 
+配布用DMGはGatekeeperでブロックされないように、Developer ID署名とApple notarizationを行います。Actionsを動かす前に、GitHubリポジトリのSecretsに次の値を設定してください。
+
+```text
+DEVELOPER_ID_CERTIFICATE_BASE64
+DEVELOPER_ID_CERTIFICATE_PASSWORD
+DEVELOPER_ID_APPLICATION
+KEYCHAIN_PASSWORD
+APPLE_ID
+APPLE_TEAM_ID
+APPLE_APP_SPECIFIC_PASSWORD
+```
+
+`DEVELOPER_ID_APPLICATION`は、キーチェーンに表示される`Developer ID Application: ... (TEAMID)`形式の証明書名です。
+
 `v1.0.0`のような`v*`タグをpushした場合は、DMGを添付したGitHub Releaseも自動作成されます。
 
 ```sh
@@ -113,6 +127,20 @@ make run
 ### Release DMG
 
 GitHub Actions automatically builds a release DMG on every push to `main`. The generated `NotSleep.dmg` can be downloaded from the workflow run artifacts.
+
+The release DMG is signed with Developer ID and notarized by Apple so Gatekeeper does not block it. Before running the workflow, add these values to the GitHub repository secrets.
+
+```text
+DEVELOPER_ID_CERTIFICATE_BASE64
+DEVELOPER_ID_CERTIFICATE_PASSWORD
+DEVELOPER_ID_APPLICATION
+KEYCHAIN_PASSWORD
+APPLE_ID
+APPLE_TEAM_ID
+APPLE_APP_SPECIFIC_PASSWORD
+```
+
+`DEVELOPER_ID_APPLICATION` is the certificate name shown in Keychain Access, in the form `Developer ID Application: ... (TEAMID)`.
 
 When pushing a `v*` tag such as `v1.0.0`, the workflow also creates a GitHub Release and attaches the DMG.
 

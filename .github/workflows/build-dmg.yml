@@ -15,6 +15,10 @@ jobs:
   build-dmg:
     name: Build macOS disk image
     runs-on: macos-latest
+    env:
+      APP_PATH: .build/release/NotSleep.app
+      DMG_PATH: dist/NotSleep.dmg
+      KEYCHAIN_PATH: ${{ runner.temp }}/notarization.keychain-db
 
     steps:
       - name: Checkout
@@ -23,11 +27,58 @@ jobs:
       - name: Build app
         run: make app
 
+      - name: Check code signing secrets
+        id: check_secrets
+        run: |
+          if [ -n "${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}" ] && [ -n "${{ secrets.DEVELOPER_ID_APPLICATION }}" ]; then
+            echo "has_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_secrets=false" >> $GITHUB_OUTPUT
+            echo "Code signing secrets not configured. Building unsigned DMG."
+          fi
+
+      - name: Import Developer ID certificate
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        env:
+          DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "$DEVELOPER_ID_CERTIFICATE_BASE64" | base64 --decode > "${RUNNER_TEMP}/developer-id.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "${RUNNER_TEMP}/developer-id.p12" \
+            -P "$DEVELOPER_ID_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Sign app
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+        run: |
+          set -euo pipefail
+          codesign \
+            --force \
+            --deep \
+            --options runtime \
+            --timestamp \
+            --sign "$DEVELOPER_ID_APPLICATION" \
+            "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
       - name: Create DMG staging folder
         run: |
           set -euo pipefail
           mkdir -p dist/dmg-root
-          cp -R .build/release/NotSleep.app dist/dmg-root/
+          cp -R "$APP_PATH" dist/dmg-root/
           ln -s /Applications dist/dmg-root/Applications
 
       - name: Create DMG
@@ -38,13 +89,44 @@ jobs:
             -srcfolder dist/dmg-root \
             -ov \
             -format UDZO \
-            dist/NotSleep.dmg
+            "$DMG_PATH"
+
+      - name: Sign DMG
+        if: steps.check_secrets.outputs.has_secrets == 'true'
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+        run: |
+          set -euo pipefail
+          codesign \
+            --force \
+            --timestamp \
+            --sign "$DEVELOPER_ID_APPLICATION" \
+            "$DMG_PATH"
+          codesign --verify --strict --verbose=2 "$DMG_PATH"
+
+      - name: Notarize DMG
+        if: steps.check_secrets.outputs.has_secrets == 'true' && secrets.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: NotSleep-dmg
-          path: dist/NotSleep.dmg
+          path: ${{ env.DMG_PATH }}
           if-no-files-found: error
 
       - name: Publish GitHub Release for version tags
@@ -54,6 +136,6 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" \
-            dist/NotSleep.dmg \
+            "$DMG_PATH" \
             --title "NotSleep ${GITHUB_REF_NAME}" \
             --notes "Release build for ${GITHUB_REF_NAME}."
