@@ -149,21 +149,19 @@ jobs:
             RELEASE_TITLE="NotSleep (Latest Build)"
           fi
 
-          cat << 'EOF' > release_notes.md
-NotSleep リリース
-
-【注意】
-アプリを開く前に、ターミナルで以下のコマンドを実行してください。
-
-```bash
-xattr -cr /Applications/NotSleep.app
-```
-
-(※ ダウンロードフォルダ内のアプリを直接開く場合は xattr -cr ~/Downloads/NotSleep.app を実行してください)
-
-【ダウンロード】
-下部の NotSleep.dmg をダウンロードしてご利用ください。
-EOF
+          echo "NotSleep リリース" > release_notes.md
+          echo "" >> release_notes.md
+          echo "【注意】" >> release_notes.md
+          echo "アプリを開く前に、ターミナルで以下のコマンドを実行してください。" >> release_notes.md
+          echo "" >> release_notes.md
+          echo '```bash' >> release_notes.md
+          echo "xattr -cr /Applications/NotSleep.app" >> release_notes.md
+          echo '```' >> release_notes.md
+          echo "" >> release_notes.md
+          echo "(※ ダウンロードフォルダ内のアプリを直接開く場合は xattr -cr ~/Downloads/NotSleep.app を実行してください)" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "【ダウンロード】" >> release_notes.md
+          echo "下部の NotSleep.dmg をダウンロードしてご利用ください。" >> release_notes.md
 
           gh release create "$TAG_NAME" "$DMG_PATH" \
             --title "$RELEASE_TITLE" \
