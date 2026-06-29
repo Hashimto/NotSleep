@@ -36,6 +36,12 @@ jobs:
             echo "Code signing secrets not configured. Building unsigned DMG."
           fi
 
+          if [ -n "${{ secrets.APPLE_ID }}" ] && [ -n "${{ secrets.APPLE_TEAM_ID }}" ] && [ -n "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]; then
+            echo "has_notarize_secrets=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_notarize_secrets=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Import Developer ID certificate
         if: steps.check_secrets.outputs.has_secrets == 'true'
         env:
@@ -105,7 +111,7 @@ jobs:
           codesign --verify --strict --verbose=2 "$DMG_PATH"
 
       - name: Notarize DMG
-        if: steps.check_secrets.outputs.has_secrets == 'true' && secrets.APPLE_ID != ''
+        if: steps.check_secrets.outputs.has_secrets == 'true' && steps.check_secrets.outputs.has_notarize_secrets == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
