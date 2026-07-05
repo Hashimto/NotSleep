@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ServiceManagement
 import SwiftUI
 
 private enum SleepSetting: Equatable {
@@ -25,11 +26,11 @@ private enum SleepSetting: Equatable {
     var statusDescription: String {
         switch self {
         case .enabled:
-            return "スリープ有効"
+            return "Sleep Enabled"
         case .disabled:
-            return "スリープ無効"
+            return "Sleep Disabled"
         case .unknown:
-            return "状態不明"
+            return "Unknown"
         }
     }
 }
@@ -44,15 +45,15 @@ private enum SleepError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .appleScriptUnavailable:
-            return "AppleScriptを作成できませんでした。"
+            return "Could not create AppleScript."
         case .authorizationFailed(let message):
             return message
         case .helperUnavailable:
-            return "スリープ設定用ヘルパーが見つからないか、認証なしで実行できません。"
+            return "Sleep helper is unavailable or permission denied."
         case .commandFailed(let message):
             return message
         case .unsupportedUserName(let userName):
-            return "ユーザー名「\(userName)」をsudoersへ安全に登録できません。"
+            return "Username '\(userName)' cannot be registered in sudoers."
         }
     }
 }
@@ -141,7 +142,7 @@ private final class PrivilegedHelperInstaller {
 
         if let error {
             let message = error[NSAppleScript.errorMessage] as? String
-            throw SleepError.authorizationFailed(message ?? "初回セットアップの認証に失敗しました。")
+            throw SleepError.authorizationFailed(message ?? "Failed to authorize helper installation.")
         }
     }
 
@@ -239,7 +240,7 @@ private final class SleepController {
             let data = output.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SleepError.commandFailed(message ?? "pmsetの実行に失敗しました。")
+            throw SleepError.commandFailed(message ?? "Failed to execute pmset command.")
         }
     }
 
@@ -303,8 +304,11 @@ private final class AppModel: ObservableObject {
     @Published var isSleepEnabled = true
     @Published var isReady = false
     @Published var isBusy = false
+    @Published var isLaunchAtLogin = false
+    @Published var showSettings = false
 
     var onToggle: ((Bool) -> Void)?
+    var onLaunchAtLoginToggle: ((Bool) -> Void)?
 
     func setSetting(_ setting: SleepSetting) {
         isSleepEnabled = setting.isSleepEnabled
@@ -318,6 +322,10 @@ private final class AppModel: ObservableObject {
 
         onToggle?(newValue)
     }
+
+    func userChangedLaunchAtLogin(to newValue: Bool) {
+        onLaunchAtLoginToggle?(newValue)
+    }
 }
 
 private struct MainView: View {
@@ -327,19 +335,49 @@ private struct MainView: View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
 
-            Toggle(
-                model.isSleepEnabled ? "オン" : "オフ",
-                isOn: Binding(
-                    get: { model.isSleepEnabled },
-                    set: { model.userChangedToggle(to: $0) }
+            VStack {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { model.isSleepEnabled },
+                        set: { model.userChangedToggle(to: $0) }
+                    )
                 )
-            )
-            .toggleStyle(.switch)
-            .controlSize(.large)
-            .font(.system(size: 15, weight: .medium))
-            .disabled(!model.isReady || model.isBusy)
+                .toggleStyle(.switch)
+                .controlSize(.large)
+                .labelsHidden()
+                .disabled(!model.isReady || model.isBusy)
+            }
         }
         .frame(minWidth: 360, minHeight: 240)
+        .sheet(isPresented: $model.showSettings) {
+            SettingsView(model: model)
+        }
+    }
+}
+
+private struct SettingsView: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Settings")
+                .font(.headline)
+
+            Toggle("Launch at login", isOn: Binding(
+                get: { model.isLaunchAtLogin },
+                set: { model.userChangedLaunchAtLogin(to: $0) }
+            ))
+            .toggleStyle(.checkbox)
+
+            Button("Close") {
+                dismiss()
+            }
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(30)
+        .frame(width: 250, height: 150)
     }
 }
 
@@ -356,6 +394,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.setActivationPolicy(.regular)
         model.onToggle = { [weak self] isSleepEnabled in
             self?.setSleepEnabled(isSleepEnabled)
+        }
+
+        model.isLaunchAtLogin = SMAppService.mainApp.status == .enabled
+        model.onLaunchAtLoginToggle = { [weak self] enabled in
+            self?.setLaunchAtLogin(enabled)
         }
 
         configureMainMenu()
@@ -379,6 +422,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showSettings() {
+        showWindow()
+        model.showSettings = true
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -396,14 +444,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         setSleepEnabled(!model.isSleepEnabled)
     }
 
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            model.isLaunchAtLogin = SMAppService.mainApp.status == .enabled
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Error"
+            alert.informativeText = "Failed to update launch at login status: \(error.localizedDescription)"
+            alert.runModal()
+            model.isLaunchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
     private func configureMainMenu() {
         let mainMenu = NSMenu()
+        
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-
         appMenu.addItem(
             NSMenuItem(
-                title: "ウィンドウを表示",
+                title: "Show Window",
                 action: #selector(showWindow),
                 keyEquivalent: "0"
             )
@@ -411,14 +476,26 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         appMenu.addItem(.separator())
         appMenu.addItem(
             NSMenuItem(
-                title: "NotSleepを終了",
+                title: "Quit NotSleep",
                 action: #selector(quit),
                 keyEquivalent: "q"
             )
         )
-
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
+
+        let settingsMenuItem = NSMenuItem()
+        let settingsMenu = NSMenu(title: "Settings")
+        settingsMenu.addItem(
+            NSMenuItem(
+                title: "Settings...",
+                action: #selector(showSettings),
+                keyEquivalent: ","
+            )
+        )
+        settingsMenuItem.submenu = settingsMenu
+        mainMenu.addItem(settingsMenuItem)
+
         NSApp.mainMenu = mainMenu
     }
 
@@ -437,15 +514,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         let menu = NSMenu()
         menu.addItem(
             NSMenuItem(
-                title: "ウィンドウを表示",
+                title: "Show Window",
                 action: #selector(showWindow),
+                keyEquivalent: ""
+            )
+        )
+        menu.addItem(
+            NSMenuItem(
+                title: "Settings...",
+                action: #selector(showSettings),
                 keyEquivalent: ""
             )
         )
         menu.addItem(.separator())
         menu.addItem(
             NSMenuItem(
-                title: "NotSleepを終了",
+                title: "Quit NotSleep",
                 action: #selector(quit),
                 keyEquivalent: ""
             )
@@ -550,12 +634,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             systemSymbolName: setting.statusSymbolName,
             accessibilityDescription: setting.statusDescription
         )
-        button.toolTip = model.isSleepEnabled ? "スリープ有効化中" : "スリープ無効化中"
+        button.toolTip = model.isSleepEnabled ? "Sleep Enabled" : "Sleep Disabled"
     }
 
     private func present(error: Error) {
         let alert = NSAlert(error: error)
-        alert.messageText = "切り替えできませんでした"
+        alert.messageText = "Operation Failed"
         alert.informativeText = error.localizedDescription
         alert.runModal()
     }
