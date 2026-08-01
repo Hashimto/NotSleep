@@ -301,7 +301,7 @@ private final class SleepController {
 
 @MainActor
 private final class AppModel: ObservableObject {
-    @Published var isSleepEnabled = true
+    @Published var setting: SleepSetting = .unknown
     @Published var isReady = false
     @Published var isBusy = false
     @Published var isLaunchAtLogin = false
@@ -310,13 +310,16 @@ private final class AppModel: ObservableObject {
     var onToggle: ((Bool) -> Void)?
     var onLaunchAtLoginToggle: ((Bool) -> Void)?
 
+    var isSleepEnabled: Bool {
+        setting.isSleepEnabled
+    }
+
     func setSetting(_ setting: SleepSetting) {
-        isSleepEnabled = setting.isSleepEnabled
+        self.setting = setting
     }
 
     func userChangedToggle(to newValue: Bool) {
         guard isReady, !isBusy else {
-            isSleepEnabled.toggle()
             return
         }
 
@@ -331,28 +334,147 @@ private final class AppModel: ObservableObject {
 private struct MainView: View {
     @ObservedObject var model: AppModel
 
-    var body: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
+    private var setting: SleepSetting {
+        model.setting
+    }
 
-            VStack {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { model.isSleepEnabled },
-                        set: { model.userChangedToggle(to: $0) }
-                    )
-                )
-                .toggleStyle(.switch)
-                .controlSize(.large)
-                .labelsHidden()
-                .disabled(!model.isReady || model.isBusy)
-            }
+    private var statusColor: Color {
+        switch setting {
+        case .enabled:
+            return .blue
+        case .disabled:
+            return .orange
+        case .unknown:
+            return .gray
         }
-        .frame(minWidth: 360, minHeight: 240)
+    }
+
+    private var statusTitle: String {
+        switch setting {
+        case .enabled:
+            return "Sleep Enabled"
+        case .disabled:
+            return "Sleep Disabled"
+        case .unknown:
+            return "Unknown Status"
+        }
+    }
+
+    private var statusDetail: String {
+        switch setting {
+        case .enabled:
+            return "Your Mac will sleep normally. Turn off sleep to keep it awake while the lid is closed."
+        case .disabled:
+            return "Your Mac won't sleep, even when the lid is closed. Keep it plugged in to avoid draining the battery."
+        case .unknown:
+            return "NotSleep couldn't read the current system setting. It will retry automatically."
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Spacer(minLength: 18)
+
+            statusIcon
+                .padding(.bottom, 16)
+
+            Text(statusTitle)
+                .font(.title3.weight(.semibold))
+
+            Text(statusDetail)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+                .padding(.horizontal, 28)
+
+            Toggle(
+                "Prevent Sleep",
+                isOn: Binding(
+                    get: { !model.isSleepEnabled },
+                    set: { model.userChangedToggle(to: !$0) }
+                )
+            )
+            .toggleStyle(.switch)
+            .controlSize(.large)
+            .padding(.top, 20)
+            .padding(.horizontal, 48)
+            .disabled(!model.isReady || model.isBusy)
+
+            if model.isBusy {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Updating…")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 12)
+            }
+
+            Spacer(minLength: 14)
+
+            Divider()
+
+            footer
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 380, height: 360)
+        .animation(.easeInOut(duration: 0.25), value: setting)
         .sheet(isPresented: $model.showSettings) {
             SettingsView(model: model)
         }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("NotSleep")
+                .font(.headline)
+            Spacer()
+            Button {
+                model.showSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
+            .accessibilityLabel("Settings")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var statusIcon: some View {
+        ZStack {
+            Circle()
+                .fill(statusColor.opacity(0.15))
+                .frame(width: 88, height: 88)
+            Image(systemName: setting.statusSymbolName)
+                .font(.system(size: 40))
+                .foregroundStyle(statusColor)
+                .symbolRenderingMode(.hierarchical)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 7, height: 7)
+            Text(setting.statusDescription)
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text("Applies system-wide")
+                .font(.callout)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
@@ -360,24 +482,39 @@ private struct SettingsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) var dismiss
 
+    private static let versionString = "1.0.0"
+
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Settings")
-                .font(.headline)
-
-            Toggle("Launch at login", isOn: Binding(
-                get: { model.isLaunchAtLogin },
-                set: { model.userChangedLaunchAtLogin(to: $0) }
-            ))
-            .toggleStyle(.checkbox)
-
-            Button("Close") {
-                dismiss()
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    Toggle("Launch at login", isOn: Binding(
+                        get: { model.isLaunchAtLogin },
+                        set: { model.userChangedLaunchAtLogin(to: $0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                } footer: {
+                    Text("Starts NotSleep automatically when you sign in to your Mac.")
+                }
             }
-            .keyboardShortcut(.defaultAction)
+            .formStyle(.grouped)
+
+            Divider()
+
+            HStack {
+                Text("Version \(Self.versionString)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
         }
-        .padding(30)
-        .frame(width: 250, height: 150)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: 360, height: 170)
     }
 }
 
@@ -431,6 +568,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         NSApp.terminate(nil)
     }
 
+    @objc private func hideWindow() {
+        window?.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     @objc private func toggleFromStatusItem() {
         if NSApp.currentEvent?.type == .rightMouseUp {
             showStatusMenu()
@@ -473,6 +615,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
                 keyEquivalent: "0"
             )
         )
+        appMenu.addItem(
+            NSMenuItem(
+                title: "Hide Window",
+                action: #selector(hideWindow),
+                keyEquivalent: "w"
+            )
+        )
         appMenu.addItem(.separator())
         appMenu.addItem(
             NSMenuItem(
@@ -512,6 +661,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func showStatusMenu() {
         let menu = NSMenu()
+
+        let statusLabelItem = NSMenuItem(
+            title: model.setting.statusDescription,
+            action: nil,
+            keyEquivalent: ""
+        )
+        statusLabelItem.isEnabled = false
+        menu.addItem(statusLabelItem)
+
+        menu.addItem(.separator())
+
+        let preventSleepItem = NSMenuItem(
+            title: "Prevent Sleep",
+            action: #selector(toggleFromStatusItem),
+            keyEquivalent: ""
+        )
+        preventSleepItem.state = model.setting.isSleepEnabled ? .off : .on
+        menu.addItem(preventSleepItem)
+
         menu.addItem(
             NSMenuItem(
                 title: "Show Window",
@@ -521,7 +689,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         )
         menu.addItem(
             NSMenuItem(
-                title: "Settings...",
+                title: "Settings…",
                 action: #selector(showSettings),
                 keyEquivalent: ""
             )
@@ -541,7 +709,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func configureWindow() {
-        let contentRect = NSRect(x: 0, y: 0, width: 360, height: 240)
+        let contentRect = NSRect(x: 0, y: 0, width: 380, height: 360)
         let window = NSWindow(
             contentRect: contentRect,
             styleMask: [.titled, .closable, .miniaturizable],
@@ -588,7 +756,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
     private func setSleepEnabled(_ isSleepEnabled: Bool) {
         model.isBusy = true
-        model.isSleepEnabled = isSleepEnabled
+        model.setSetting(isSleepEnabled ? .enabled : .disabled)
         render()
 
         do {
@@ -624,7 +792,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     }
 
     private func render() {
-        let setting: SleepSetting = model.isSleepEnabled ? .enabled : .disabled
+        let setting = model.setting
 
         guard let button = statusItem.button else {
             return
@@ -634,7 +802,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
             systemSymbolName: setting.statusSymbolName,
             accessibilityDescription: setting.statusDescription
         )
-        button.toolTip = model.isSleepEnabled ? "Sleep Enabled" : "Sleep Disabled"
+        button.toolTip = setting.statusDescription
     }
 
     private func present(error: Error) {
